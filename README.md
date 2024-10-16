@@ -10,6 +10,7 @@ Miner Server:
     Handles block mining and interacts with the central server to receive new transactions.
     Mines blocks according to a fixed interval (e.g., every 30 seconds)
 
+----
 
 TODO: 
 
