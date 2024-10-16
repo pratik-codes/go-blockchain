@@ -20,6 +20,7 @@ Code that miners can run to be able to create blocks, do proof of work, broadcas
 Code that verifies the signature, balances and creates / adds a block
 Code should reject smaller blockchains/erronours blocks
 Should be able to catch up to the blockchain when the server starts
+
 Frontend -
 Lets the user create a BTC wallet
 Lets the user sign a txn, send it over to one of the miner servers
