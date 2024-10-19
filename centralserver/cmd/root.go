@@ -2,20 +2,20 @@ package cmd
 
 import (
 	ws "centralserver/pkg/websocket"
-	"fmt"
+	"log"
 	"net/http"
 )
 
 func Execute() {
-	http.HandleFunc("/ws", ws.HandleConnections)
+	wsServer := ws.NewWebSocketServer()
 
-	// handles all the messages that are broadcasted
-	go ws.HandleMessages()
+	http.HandleFunc("/ws/user", wsServer.HandleUserConnections)
+	http.HandleFunc("/ws/miner", wsServer.HandleMinerConnections)
 
-	err := http.ListenAndServe(":8080", nil)
-	if err != nil {
-		fmt.Println("Error starting server:", err)
+	go wsServer.HandleMessages()
+
+	log.Println("Starting server on :8080")
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Fatalf("Error starting server: %v", err)
 	}
-
-	fmt.Println("Central server started on :8080")
 }

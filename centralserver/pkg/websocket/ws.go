@@ -1,80 +1,124 @@
 package ws
 
 import (
-	"encoding/json"
-	"fmt"
+	"centralserver/internal/constants"
+	"centralserver/internal/datatypes"
 	"log"
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/websocket"
 )
 
-// whitelisting every origin to connect with the ws request
+type WebSocketServer struct {
+	userClients  map[*websocket.Conn]bool // Track user clients
+	minerClients map[*websocket.Conn]bool // Track miner clients
+	broadcast    chan datatypes.Message   // Channel for broadcasting messages to miners
+	mu           sync.Mutex               // Protect the clients map
+}
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
 }
 
-var (
-	clients   = make(map[*websocket.Conn]bool)
-	broadcast = make(chan []byte)
-)
+// NewWebSocketServer initializes a new WebSocket server
+func NewWebSocketServer() *WebSocketServer {
+	return &WebSocketServer{
+		userClients:  make(map[*websocket.Conn]bool),
+		minerClients: make(map[*websocket.Conn]bool),
+		broadcast:    make(chan datatypes.Message),
+	}
+}
 
-func HandleConnections(w http.ResponseWriter, r *http.Request) {
-	log.Println("Number of clients connected: ", len(clients))
+// HandleUserConnections upgrades the HTTP connection to a WebSocket for users (to send transactions)
+func (s *WebSocketServer) HandleUserConnections(w http.ResponseWriter, r *http.Request) {
+	s.handleConnections(w, r, constants.USER_CLIENT)
+}
 
+// HandleMinerConnections upgrades the HTTP connection to a WebSocket for miners (to receive transactions, mine blocks)
+func (s *WebSocketServer) HandleMinerConnections(w http.ResponseWriter, r *http.Request) {
+	s.handleConnections(w, r, constants.MINER_CLIENT)
+}
+
+// handleConnections is a helper function to upgrade the connection and manage the client map
+func (s *WebSocketServer) handleConnections(w http.ResponseWriter, r *http.Request, clientType string) {
+	// Upgrade the HTTP connection to a WebSocket
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println("Error upgrading to WebSocket:", err)
+		log.Printf("Error upgrading to WebSocket (%s): %v", clientType, err)
 		return
 	}
-
 	defer ws.Close()
 
-	clients[ws] = true
+	s.mu.Lock()
+	if clientType == constants.USER_CLIENT {
+		s.userClients[ws] = true
+		log.Printf("User connected. Total users: %d", len(s.userClients))
+	} else {
+		s.minerClients[ws] = true
+		log.Printf("Miner connected. Total miners: %d", len(s.minerClients))
+	}
+	s.mu.Unlock()
 
-	// reading messages from the client
+	defer func() {
+		// clear clients
+		s.clearClients(ws, clientType)
+	}()
+
+	// Handle client messages
 	for {
 		_, message, err := ws.ReadMessage()
 		if err != nil {
-			log.Println("read:", err)
-			delete(clients, ws)
+			log.Printf("Error reading WebSocket message (%s): %v", clientType, err)
 			break
 		}
 
-		broadcast <- message
-	}
-}
-
-// this function will handle the messages received from the client
-func HandleMessages() {
-	log.Println("HandleMessages started", clients, broadcast)
-
-	for {
-		msg := <-broadcast
-
-		go ProcessMessage(msg)
-	}
-}
-
-// this function will process the message received from the client and broadcast it to all the connected miners
-// and in the end it will send the response back to the client
-func ProcessMessage(msg []byte) {
-	// Unmarshal the JSON message
-	var jsonMsg map[string]interface{}
-	dataUnMarshalErr := json.Unmarshal(msg, &jsonMsg)
-	if dataUnMarshalErr != nil {
-		log.Println("Error unmarshaling JSON:", dataUnMarshalErr)
-	}
-
-	fmt.Println("Broadcasting message in JSON: ", jsonMsg)
-
-	for client := range clients {
-		err := client.WriteMessage(websocket.TextMessage, msg)
-		if err != nil {
-			client.Close()
-			delete(clients, client)
+		// Handle messages based on client type
+		if clientType == constants.USER_CLIENT {
+			msg := datatypes.Message{
+				// Broadcast the user's transaction to miners
+				UserClient: ws,
+				Content:    message,
+			}
+			s.broadcast <- msg
 		}
+
+		// TODO: Miner-specific message handling (e.g., mined blocks)
 	}
+}
+
+// HandleMessages listens for broadcast messages and sends them to all miners
+func (s *WebSocketServer) HandleMessages() {
+	log.Println("Listening for broadcast messages...")
+
+	// for {
+	// 	// Lock only when accessing shared resources
+	// 	s.mu.Lock()
+	// 	for miner := range s.minerClients {
+	// 		o := &operations.Operations{
+	// 			Miner:        miner,
+	// 			UserClients:  s.userClients,
+	// 			MinerClients: s.minerClients,
+	// 			Broadcast:    s.broadcast,
+	// 			Mu:           s.mu,
+	// 		}
+	// 		go o.HandleMinersBroadcast()
+	// 	}
+	// 	s.mu.Unlock()
+	// }
+}
+
+// Cleanup when a client disconnects
+func (s *WebSocketServer) clearClients(ws *websocket.Conn, clientType string) {
+	s.mu.Lock()
+	if clientType == "user" {
+		delete(s.userClients, ws)
+		log.Printf("User disconnected. Total users: %d", len(s.userClients))
+	} else {
+		delete(s.minerClients, ws)
+		log.Printf("Miner disconnected. Total miners: %d", len(s.minerClients))
+	}
+	s.mu.Unlock()
 }
