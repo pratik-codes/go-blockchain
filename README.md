@@ -1,26 +1,74 @@
-Central Server:
-    Implements the central WebSocket server responsible for broadcasting new transactions to all connected miners.
-    Manages connections
-    Broadcasts newly minted blocks to rest of the miners 
-    Adjusts difficulty accordingly to match the desired average blocktime
-    Manages txn pool for the chain and keeps it in sync (removes txns which are included in the block from pool)
+# Blockchain Interaction: Central Server & Miner Nodes
 
-Miner Server:
-    Implements the miner server code where each miner maintains its own transaction pool.
-    Handles block mining and interacts with the central server to receive new transactions.
-    Mines blocks according to a fixed interval (e.g., every 30 seconds)
+## **Step-by-Step Interaction When a User Adds a Transaction Request:**
 
-----
+```text
+  User                             Central Server                          Miners (M1, M2, ...)
+    |                                    |                                      |
+    |------ Add Transaction -------------|                                      |
+    |                                    |                                      |
+    |                                    |                                      |
+    |                               1. Broadcast Transaction -------------------| 
+    |                                    |--------- Receive Transaction --------|
+    |                                    |                                      |
+    |                                    |                                      |
+    |                                    |                                      |
+    |                              2. Add transaction to txn pool               |
+    |                                    |                                      |
+    |                                    |                                      |
+    |                                    |--------- Broadcast new txns -------->|
+    |                                    |                                      |
+    |                                    |                                      |
+    |                                    |                                      |
+    |                              3. Wait for block mining                    3. Start mining
+    |                                    |                                      |---|
+    |                                    |                                      |   |--> Do proof of work
+    |                                    |                                      |---|
+    |                                    |                                      |
+    |                                    |                                      |---|
+    |                                    |                                      |   |--> Successfully mine a block
+    |                                    |                                      |---|
+    |                                    |                                      |
+    |                                    | <----- Broadcast new block --------- |
+    |                                    |                                      |
+    |                                    |                                      |
+    |                              4. Verify Block                             4. Verify Block
+    |                              5. Add Block to chain                       5. Add Block to chain
+    |                              6. Adjust difficulty                        6. Adjust difficulty
+    |                                    |                                      |
+    |                                    | ----- Broadcast new block ---------> |
+    |                                    |          new block to                |
+    |------- Notify users of success ----|           other miners               |
+```
 
-TODO: 
+## Central Server Responsibilities:
+1. Broadcast Transaction:
+When a user adds a new transaction, the central server broadcasts it to all connected miners.
 
-[IN PROGRESS] - Central server - A central websocket server that all miners connect to to exchange messages
+2. Manage Transaction Pool:
+The server adds the transaction to its own transaction pool and removes transactions that are already included in a mined block.
 
-[PENDING] - Miner server -  Code that miners can run to be able to create blocks, do proof of work, broadcast the block via the central server.
-Code that verifies the signature, balances and creates / adds a block
-Code should reject smaller blockchains/erronours blocks
-Should be able to catch up to the blockchain when the server starts
+3. Broadcast New Transactions:
+The server keeps miners updated by broadcasting new transactions regularly.
 
-[PENDING] - Frontend - 
-Lets the user create a BTC wallet
-Lets the user sign a txn, send it over to one of the miner servers
+4. Verify and Add Block:
+Once a block is mined by any miner, the central server verifies it and broadcasts the new block to the rest of the miners.
+
+5. Adjust Difficulty:
+After receiving each new block, the server adjusts the difficulty level to maintain a steady block time.
+
+## Miner Server Responsibilities:
+1. Receive Transactions:
+Each miner receives new transactions from the central server and maintains its own transaction pool.
+
+2. Mine Blocks:
+Miners mine blocks at a fixed interval by performing Proof of Work (PoW). This involves finding a valid hash based on the difficulty level.
+
+3. Broadcast Mined Block:
+After successfully mining a block, the miner broadcasts it to the central server, which further distributes it to all other miners.
+
+4. Verify Block:
+Each miner verifies the received block and checks if the chain is valid. Smaller or erroneous chains are rejected.
+
+5. Update Blockchain:
+The miner updates its local copy of the blockchain and adjusts the mining difficulty based on the central server’s broadcast.

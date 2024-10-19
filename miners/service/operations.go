@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	dataypes "miners/internal"
 	"time"
+
+	dataypes "miners/internal"
 )
 
 type Block struct {
