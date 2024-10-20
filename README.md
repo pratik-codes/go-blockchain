@@ -12,13 +12,9 @@
     |                                    |--------- Receive Transaction --------|
     |                                    |                                      |
     |                                    |                                      |
-    |                                    |                                      |
     |                              2. Add transaction to txn pool               |
     |                                    |                                      |
-    |                                    |                                      |
     |                                    |--------- Broadcast new txns -------->|
-    |                                    |                                      |
-    |                                    |                                      |
     |                                    |                                      |
     |                              3. Wait for block mining                    3. Start mining
     |                                    |                                      |---|
@@ -30,15 +26,17 @@
     |                                    |                                      |---|
     |                                    |                                      |
     |                                    | <----- Broadcast new block --------- |
-    |                                    |                                      |
-    |                                    |                                      |
     |                              4. Verify Block                             4. Verify Block
     |                              5. Add Block to chain                       5. Add Block to chain
     |                              6. Adjust difficulty                        6. Adjust difficulty
     |                                    |                                      |
+    |                                    |                                      |
     |                                    | ----- Broadcast new block ---------> |
-    |                                    |          new block to                |
-    |------- Notify users of success ----|           other miners               |
+    |                                    |            to                        |
+    |                                    |        other miners                  |
+    |                                    |                                      |
+    |                                    |                                      |
+    |------- Notify users of success ----|                                      |
 ```
 
 ## Central Server Responsibilities:
