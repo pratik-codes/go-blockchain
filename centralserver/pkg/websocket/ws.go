@@ -3,6 +3,7 @@ package ws
 import (
 	"centralserver/internal/constants"
 	"centralserver/internal/datatypes"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -11,10 +12,11 @@ import (
 )
 
 type WebSocketServer struct {
-	userClients  map[*websocket.Conn]bool // Track user clients
-	minerClients map[*websocket.Conn]bool // Track miner clients
-	broadcast    chan datatypes.Message   // Channel for broadcasting messages to miners
-	mu           sync.Mutex               // Protect the clients map
+	userClients          map[*websocket.Conn]bool // Track user clients
+	minerClients         map[*websocket.Conn]bool // Track miner clients
+	broadcast            chan datatypes.Message   // Channel for broadcasting messages to miners
+	mu                   sync.Mutex               // Protect the clients map
+	handleMinersBrodcast func() (msg datatypes.Message)
 }
 
 var upgrader = websocket.Upgrader{
@@ -29,6 +31,7 @@ func NewWebSocketServer() *WebSocketServer {
 		userClients:  make(map[*websocket.Conn]bool),
 		minerClients: make(map[*websocket.Conn]bool),
 		broadcast:    make(chan datatypes.Message),
+		// handleMinersBrodcast: operations.HandleMinersBrodcast,
 	}
 }
 
@@ -93,21 +96,21 @@ func (s *WebSocketServer) handleConnections(w http.ResponseWriter, r *http.Reque
 func (s *WebSocketServer) HandleMessages() {
 	log.Println("Listening for broadcast messages...")
 
-	// for {
-	// 	// Lock only when accessing shared resources
-	// 	s.mu.Lock()
-	// 	for miner := range s.minerClients {
-	// 		o := &operations.Operations{
-	// 			Miner:        miner,
-	// 			UserClients:  s.userClients,
-	// 			MinerClients: s.minerClients,
-	// 			Broadcast:    s.broadcast,
-	// 			Mu:           s.mu,
-	// 		}
-	// 		go o.HandleMinersBroadcast()
-	// 	}
-	// 	s.mu.Unlock()
-	// }
+	for {
+		// Lock only when accessing shared resources
+		s.mu.Lock()
+		for miner := range s.minerClients {
+			fmt.Println(miner)
+			// o := &operations.Operations{
+			// 	Miner:       miner,
+			// 	UserClients: s.userClients,
+			// 	Broadcast:   s.broadcast,
+			// 	Mu:          s.mu,
+			// }
+			// go o.HandleMinersBroadcast()
+		}
+		s.mu.Unlock()
+	}
 }
 
 // Cleanup when a client disconnects

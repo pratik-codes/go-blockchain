@@ -16,6 +16,12 @@ type Operations struct {
 	Miner        *websocket.Conn
 }
 
+// checks if a transaciton sent to the central server is valid
+func (o *Operations) CheckValidTransaction() (bool, error) {
+	return true, nil
+}
+
+// handles the logic to brodcast a valid transactions to all mineres
 func (o *Operations) HandleMinersBrodcast(msg datatypes.Message) {
 	log.Println("Broadcasting message to miners:", string(msg.Content))
 
