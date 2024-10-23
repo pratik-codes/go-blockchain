@@ -3,20 +3,25 @@ package ws
 import (
 	"centralserver/internal/constants"
 	"centralserver/internal/datatypes"
-	"fmt"
-	"log"
+	log "centralserver/pkg/logger"
+	"centralserver/service/operations"
+	"centralserver/utils"
 	"net/http"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
 type WebSocketServer struct {
-	userClients          map[*websocket.Conn]bool // Track user clients
-	minerClients         map[*websocket.Conn]bool // Track miner clients
-	broadcast            chan datatypes.Message   // Channel for broadcasting messages to miners
-	mu                   sync.Mutex               // Protect the clients map
-	handleMinersBrodcast func() (msg datatypes.Message)
+	userClients  map[string]*datatypes.Client // Track user clients
+	minerClients map[string]*datatypes.Client // Track miner clients
+	memPool      chan *datatypes.Message      // memPool for broadcasting messages to miners
+	mu           sync.Mutex                   // Protect the clients map
+	Ops          *operations.Operations
+
+	// utitlity
+	log *log.Logger
 }
 
 var upgrader = websocket.Upgrader{
@@ -27,11 +32,22 @@ var upgrader = websocket.Upgrader{
 
 // NewWebSocketServer initializes a new WebSocket server
 func NewWebSocketServer() *WebSocketServer {
+	userClients := make(map[string]*datatypes.Client)
+	minerClients := make(map[string]*datatypes.Client)
+	memPool := make(chan *datatypes.Message)
+	o := &operations.Operations{
+		UserClients:  userClients,
+		MinerClients: minerClients,
+		Broadcast:    memPool,
+	}
+
 	return &WebSocketServer{
-		userClients:  make(map[*websocket.Conn]bool),
-		minerClients: make(map[*websocket.Conn]bool),
-		broadcast:    make(chan datatypes.Message),
-		// handleMinersBrodcast: operations.HandleMinersBrodcast,
+		userClients:  userClients,
+		minerClients: minerClients,
+		memPool:      memPool,
+		Ops:          o,
+		log:          log.NewLogger(),
+		mu:           sync.Mutex{},
 	}
 }
 
@@ -47,81 +63,98 @@ func (s *WebSocketServer) HandleMinerConnections(w http.ResponseWriter, r *http.
 
 // handleConnections is a helper function to upgrade the connection and manage the client map
 func (s *WebSocketServer) handleConnections(w http.ResponseWriter, r *http.Request, clientType string) {
+	s.log.Info("Client connected, type: %s", clientType)
+
 	// Upgrade the HTTP connection to a WebSocket
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("Error upgrading to WebSocket (%s): %v", clientType, err)
+		s.log.Error("Error upgrading to WebSocket (%s): %v", clientType, err)
 		return
 	}
-	defer ws.Close()
 
-	s.mu.Lock()
-	if clientType == constants.USER_CLIENT {
-		s.userClients[ws] = true
-		log.Printf("User connected. Total users: %d", len(s.userClients))
-	} else {
-		s.minerClients[ws] = true
-		log.Printf("Miner connected. Total miners: %d", len(s.minerClients))
+	// creating current user connected data
+	_uuid := uuid.New().String()
+	user := &datatypes.Client{
+		Conn: ws,
+		Id:   _uuid,
 	}
-	s.mu.Unlock()
 
-	defer func() {
-		// clear clients
-		s.clearClients(ws, clientType)
-	}()
+	// defer cleanup for the current user
+	defer s.clearClients(ws, clientType, user)
 
+	if clientType == constants.USER_CLIENT {
+		utils.WithLock(&s.mu, func() {
+			s.userClients[_uuid] = user
+		})
+		s.log.Info("User connected. Total users: %d", len(s.userClients))
+	} else {
+		utils.WithLock(&s.mu, func() {
+			// TODO: fix this when implementing proper miner side logic
+			s.minerClients[_uuid] = &datatypes.Client{}
+		})
+		s.log.Info("Miner connected. Total miners: %d", len(s.minerClients))
+	}
 	// Handle client messages
 	for {
 		_, message, err := ws.ReadMessage()
 		if err != nil {
-			log.Printf("Error reading WebSocket message (%s): %v", clientType, err)
+			s.log.Error("Error reading WebSocket message (%s): %v", clientType, err)
 			break
 		}
 
 		// Handle messages based on client type
 		if clientType == constants.USER_CLIENT {
-			msg := datatypes.Message{
-				// Broadcast the user's transaction to miners
-				UserClient: ws,
-				Content:    message,
+			msg := &datatypes.Message{
+				Client:  user,
+				Content: message,
 			}
-			s.broadcast <- msg
+			s.memPool <- msg
 		}
 
-		// TODO: Miner-specific message handling (e.g., mined blocks)
+		if clientType == constants.MINER_CLIENT {
+			s.HandleMinersMessage(message)
+		}
 	}
 }
 
+func (s *WebSocketServer) HandleMinersMessage(msg []byte) {
+	s.log.Info("message from miner: ", string(msg))
+}
+
 // HandleMessages listens for broadcast messages and sends them to all miners
-func (s *WebSocketServer) HandleMessages() {
-	log.Println("Listening for broadcast messages...")
+func (s *WebSocketServer) HandleUserMessages() {
+	s.log.Info("Listening for broadcast messages...")
 
 	for {
-		// Lock only when accessing shared resources
-		s.mu.Lock()
-		for miner := range s.minerClients {
-			fmt.Println(miner)
-			// o := &operations.Operations{
-			// 	Miner:       miner,
-			// 	UserClients: s.userClients,
-			// 	Broadcast:   s.broadcast,
-			// 	Mu:          s.mu,
-			// }
-			// go o.HandleMinersBroadcast()
-		}
-		s.mu.Unlock()
+		utils.WithLock(&s.mu, func() {
+			msg := <-s.memPool
+			// Lock only when accessing shared resources
+			for miner := range s.minerClients {
+				s.Ops.Miner = s.minerClients[miner]
+				go s.Ops.HandleMinersBrodcast(msg)
+			}
+		})
 	}
 }
 
 // Cleanup when a client disconnects
-func (s *WebSocketServer) clearClients(ws *websocket.Conn, clientType string) {
-	s.mu.Lock()
+func (s *WebSocketServer) clearClients(ws *websocket.Conn, clientType string, user *datatypes.Client) {
+	ws.Close()
+
 	if clientType == "user" {
-		delete(s.userClients, ws)
-		log.Printf("User disconnected. Total users: %d", len(s.userClients))
+		uuid := uuid.New()
+		user := &datatypes.UserClient{
+			Id:   uuid.String(),
+			Conn: ws,
+		}
+		utils.WithLock(&s.mu, func() {
+			delete(s.userClients, user.Id)
+		})
+		s.log.Info("User disconnected. Total users: %d", len(s.userClients))
 	} else {
-		delete(s.minerClients, ws)
-		log.Printf("Miner disconnected. Total miners: %d", len(s.minerClients))
+		utils.WithLock(&s.mu, func() {
+			delete(s.minerClients, user.Id)
+		})
+		s.log.Info("Miner disconnected. Total miners: %d", len(s.minerClients))
 	}
-	s.mu.Unlock()
 }
