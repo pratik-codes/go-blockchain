@@ -18,8 +18,8 @@ func Execute() {
 	http.HandleFunc("/ws/user", wsServer.HandleUserConnections)
 	http.HandleFunc("/ws/miner", wsServer.HandleMinerConnections)
 
-	// a function that runs and always consumes new messages from a user client
-	go wsServer.HandleUserMessages()
+	// a function that runs and always consumes new transactions from a user client
+	go wsServer.HandleTransactions()
 
 	log := log.NewLogger()
 

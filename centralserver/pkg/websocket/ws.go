@@ -40,14 +40,14 @@ func NewWebSocketServer() *WebSocketServer {
 		MinerClients: minerClients,
 		Broadcast:    memPool,
 	}
+	log := log.NewLogger()
 
 	return &WebSocketServer{
 		userClients:  userClients,
 		minerClients: minerClients,
 		memPool:      memPool,
 		Ops:          o,
-		log:          log.NewLogger(),
-		mu:           sync.Mutex{},
+		log:          log,
 	}
 }
 
@@ -82,18 +82,16 @@ func (s *WebSocketServer) handleConnections(w http.ResponseWriter, r *http.Reque
 	// defer cleanup for the current user
 	defer s.clearClients(ws, clientType, user)
 
-	if clientType == constants.USER_CLIENT {
-		utils.WithLock(&s.mu, func() {
+	utils.WithLock(&s.mu, func() {
+		if clientType == constants.USER_CLIENT {
 			s.userClients[_uuid] = user
-		})
-		s.log.Info("User connected. Total users: %d", len(s.userClients))
-	} else {
-		utils.WithLock(&s.mu, func() {
+			s.log.Info("User connected. Total users: %d", len(s.userClients))
+		} else {
 			// TODO: fix this when implementing proper miner side logic
 			s.minerClients[_uuid] = &datatypes.Client{}
-		})
-		s.log.Info("Miner connected. Total miners: %d", len(s.minerClients))
-	}
+			s.log.Info("Miner connected. Total miners: %d", len(s.minerClients))
+		}
+	})
 
 	// Handle client messages
 	for {
@@ -122,19 +120,16 @@ func (s *WebSocketServer) HandleMinersMessage(msg []byte) {
 	s.log.Info("message from miner: ", string(msg))
 }
 
-// HandleMessages listens for broadcast messages and sends them to all miners
-func (s *WebSocketServer) HandleUserMessages() {
+// Handle Transactions listens for transactions from the mempool and sends them to all miners
+func (s *WebSocketServer) HandleTransactions() {
 	s.log.Info("Listening for broadcast messages...")
 
 	for {
-		utils.WithLock(&s.mu, func() {
-			msg := <-s.memPool
-			// Lock only when accessing shared resources
-			for miner := range s.minerClients {
-				s.Ops.Miner = s.minerClients[miner]
-				go s.Ops.HandleMinersBrodcast(msg)
-			}
-		})
+		msg := <-s.memPool
+		for miner := range s.minerClients {
+			s.Ops.Miner = s.minerClients[miner]
+			go s.Ops.HandleMinersBrodcast(msg)
+		}
 	}
 }
 
