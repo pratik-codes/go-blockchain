@@ -94,6 +94,7 @@ func (s *WebSocketServer) handleConnections(w http.ResponseWriter, r *http.Reque
 		})
 		s.log.Info("Miner connected. Total miners: %d", len(s.minerClients))
 	}
+
 	// Handle client messages
 	for {
 		_, message, err := ws.ReadMessage()
