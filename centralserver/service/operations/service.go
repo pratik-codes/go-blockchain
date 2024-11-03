@@ -30,9 +30,12 @@ func (o *Operations) CheckValidTransaction() (bool, error) {
 	return true, nil
 }
 
+func (o *Operations) CreateTransaction() {
+}
+
 // handles the logic to brodcast a valid transactions to all mineres
 func (o *Operations) HandleMinersBrodcast(msg *datatypes.Message) {
-	o.log.Info("Broadcasting message to miners:", string(msg.Content))
+	o.log.Info("Broadcasting message to miners: %s", string(msg.Content))
 
 	msgData := map[string]interface{}{
 		"message":  msg.Content,

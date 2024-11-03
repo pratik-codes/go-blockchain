@@ -10,31 +10,33 @@ import (
 
 type Validator struct {
 	log *log.Logger
+  validate *validator.Validate
 }
 
 var validate *validator.Validate
 
 func NewValidatorService() *Validator {
-	return &Validator{}
+	log := log.NewLogger()
+	return &Validator{
+		log: log,
+    validate: validator.New(),
+	}
 }
 
-func (v *Validator) ValidateTransactionPayload(payload map[string]interface{}) (bool, error) {
-	// Convert map to JSON and then to the struct
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return false, err
-	}
-
+func (v *Validator) ValidateTransactionPayload(payload []byte) (bool, error) {
+	// Directly unmarshal payload into the struct
 	var userPayload *datatypes.UserTransactionPayload
-	if err := json.Unmarshal(jsonData, &userPayload); err != nil {
+	if err := json.Unmarshal(payload, &userPayload); err != nil {
 		return false, err
 	}
 
 	// Validate the struct
-	validateErr := validate.Struct(userPayload)
+	validateErr := v.validate.Struct(userPayload)
 	if validateErr != nil {
+		v.log.Error("Error validating transaction payload: %s", validateErr)
 		return false, validateErr
 	}
 
+	v.log.Info("Transaction payload validated successfully")
 	return true, nil
 }

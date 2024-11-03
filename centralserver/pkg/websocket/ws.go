@@ -5,12 +5,14 @@ import (
 	"centralserver/internal/datatypes"
 	log "centralserver/pkg/logger"
 	"centralserver/service/operations"
+	"centralserver/service/state"
+	"centralserver/service/validators"
 	"centralserver/utils"
 	"net/http"
 	"sync"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
+  "github.com/gorilla/websocket"
 )
 
 type WebSocketServer struct {
@@ -19,9 +21,11 @@ type WebSocketServer struct {
 	memPool      chan *datatypes.Message      // memPool for broadcasting messages to miners
 	mu           sync.Mutex                   // Protect the clients map
 	Ops          *operations.Operations
+	state        *state.StateService
+	validators   *validators.Validator
 
 	// utitlity
-	log *log.Logger
+  log *log.Logger
 }
 
 var upgrader = websocket.Upgrader{
@@ -41,6 +45,8 @@ func NewWebSocketServer() *WebSocketServer {
 		Broadcast:    memPool,
 	}
 	log := log.NewLogger()
+	state := state.NewState()
+	validators := validators.NewValidatorService()
 
 	return &WebSocketServer{
 		userClients:  userClients,
@@ -48,6 +54,8 @@ func NewWebSocketServer() *WebSocketServer {
 		memPool:      memPool,
 		Ops:          o,
 		log:          log,
+		state:        state,
+		validators:   validators,
 	}
 }
 
@@ -101,13 +109,22 @@ func (s *WebSocketServer) handleConnections(w http.ResponseWriter, r *http.Reque
 			break
 		}
 
-		// Handle messages based on client type
+  // Handle messages based on client type
 		if clientType == constants.USER_CLIENT {
-			msg := &datatypes.Message{
-				Client:  user,
-				Content: message,
+			// checking payload validity
+			isValidPayload, err := s.validators.ValidateTransactionPayload(message)
+			if err != nil {
+				s.log.Error("Error checking transaction validity: %v", err)
+				ws.WriteMessage(websocket.TextMessage, []byte("Invalid transaction payload"))
 			}
-			s.memPool <- msg
+
+			if isValidPayload {
+				msg := &datatypes.Message{
+					Client:  user,
+					Content: message,
+				}
+				s.memPool <- msg
+			}
 		}
 
 		if clientType == constants.MINER_CLIENT {
@@ -117,7 +134,7 @@ func (s *WebSocketServer) handleConnections(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *WebSocketServer) HandleMinersMessage(msg []byte) {
-	s.log.Info("message from miner: ", string(msg))
+	s.log.Info("message from miner: %s", string(msg))
 }
 
 // Handle Transactions listens for transactions from the mempool and sends them to all miners
@@ -126,6 +143,7 @@ func (s *WebSocketServer) HandleTransactions() {
 
 	for {
 		msg := <-s.memPool
+		s.log.Info("Broadcasting message to miners: %s", string(msg.Content))
 		for miner := range s.minerClients {
 			s.Ops.Miner = s.minerClients[miner]
 			go s.Ops.HandleMinersBrodcast(msg)
