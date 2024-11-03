@@ -12,7 +12,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-  "github.com/gorilla/websocket"
+	"github.com/gorilla/websocket"
 )
 
 type WebSocketServer struct {
@@ -25,7 +25,7 @@ type WebSocketServer struct {
 	validators   *validators.Validator
 
 	// utitlity
-  log *log.Logger
+	log *log.Logger
 }
 
 var upgrader = websocket.Upgrader{
@@ -109,26 +109,29 @@ func (s *WebSocketServer) handleConnections(w http.ResponseWriter, r *http.Reque
 			break
 		}
 
-  // Handle messages based on client type
-		if clientType == constants.USER_CLIENT {
-			// checking payload validity
-			isValidPayload, err := s.validators.ValidateTransactionPayload(message)
-			if err != nil {
-				s.log.Error("Error checking transaction validity: %v", err)
-				ws.WriteMessage(websocket.TextMessage, []byte("Invalid transaction payload"))
-			}
-
-			if isValidPayload {
-				msg := &datatypes.Message{
-					Client:  user,
-					Content: message,
+		if message != nil {
+			// Handle messages based on client type
+			if clientType == constants.USER_CLIENT {
+				// checking payload validity
+				isValidPayload, err := s.validators.ValidateTransactionPayload(message)
+				if err != nil {
+					s.log.Error("Error checking transaction validity: %v", err)
+					ws.WriteMessage(websocket.TextMessage, []byte("Invalid transaction payload"))
 				}
-				s.memPool <- msg
+
+				if isValidPayload {
+					msg := &datatypes.Message{
+						Client:  user,
+						Content: message,
+					}
+					s.memPool <- msg
+				}
 			}
 		}
 
 		if clientType == constants.MINER_CLIENT {
-			s.HandleMinersMessage(message)
+			s.log.Info("message from miner: %s", message)
+			// s.HandleMinersMessage(message)
 		}
 	}
 }
